@@ -92,8 +92,13 @@ public class MainActivity extends AppCompatActivity{
         float leftJoystickY = motionEvent.getAxisValue(MotionEvent.AXIS_Y);
         float rightJoystickX = motionEvent.getAxisValue(MotionEvent.AXIS_Z);
         float rightJoystickY = motionEvent.getAxisValue(MotionEvent.AXIS_RZ);
-        float leftTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_LTRIGGER);
-        float rightTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_RTRIGGER);
+
+//        float leftTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_LTRIGGER);
+//        float rightTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_RTRIGGER);
+
+
+        float leftTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_BRAKE);
+        float rightTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_GAS);
 
         float dPadX = motionEvent.getAxisValue(MotionEvent.AXIS_HAT_X);
         float dPadY = motionEvent.getAxisValue(MotionEvent.AXIS_HAT_Y);
