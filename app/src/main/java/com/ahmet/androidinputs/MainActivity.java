@@ -2,153 +2,166 @@ package com.ahmet.androidinputs;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.app.Activity;
+import android.content.Context;
+import android.hardware.input.InputManager;
 import android.os.Bundle;
-import android.util.Log;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.text.TextUtils;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.View;
-import android.view.accessibility.AccessibilityEvent;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.Toast;
 
 import com.ahmet.androidinputs.databinding.ActivityMainBinding;
 
-import java.util.HashMap;
-import java.util.Map;
-
-public class MainActivity extends AppCompatActivity{
+import java.util.ArrayList;
+import java.util.List;
+public class MainActivity extends AppCompatActivity implements InputManager.InputDeviceListener {
 
     private ActivityMainBinding binding;
-    private static final String TAG = "XboxController";
+    private InputManager inputManager;
+    private ControllerInputManager controllerInputManager;
+    private InputEventAdapter adapter;
 
-    // Xbox Controller ve Logitech cihazlarının Vendor ve Product ID'leri
-    private static final int VENDOR_ID_MICROSOFT = 0x045E;
-    private static final int PRODUCT_ID_XBOX_CONTROLLER = 0x02FD;
-    private static final int VENDOR_ID_LOGITECH = 1133;
-    private static final int PRODUCT_ID_LOGITECH_XBOX_CONTROLLER = 49695;
-    private static final int PRODUCT_ID_LOGITECH_GENERIC_CONTROLLER = 49689;
+    private ArrayAdapter<String> deviceAdapter;
+    private final List<String> deviceList = new ArrayList<>();
 
-    private String currentButtonState = "Button: N/A";
-    private String currentJoystickState = "Left Joystick: (0, 0)\nRight Joystick: (0, 0)";
-    private String currentTriggerState = "Left Trigger: 0\nRight Trigger: 0";
-    private String currentDpadState = "D Pad X: 0\nD Pad Y: 0";
-
-    private String deviceInfo = "Device: N/A";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-        updateDisplay();
+
+        adapter = new InputEventAdapter(this, new ArrayList<>());
+        binding.eventListView.setAdapter(adapter);
+
+        controllerInputManager = new ControllerInputManager(updatedList -> runOnUiThread(() -> {
+            adapter.clear();
+            adapter.addAll(updatedList);
+        }));
+
+        binding.clearButton.setOnClickListener(v -> controllerInputManager.clear());
+
+        inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
+
+        deviceAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, deviceList);
+        binding.deviceListView.setAdapter(deviceAdapter);
+        binding.deviceListView.setOnItemClickListener((parent, view, position, id) -> {
+            int[] deviceIds = inputManager.getInputDeviceIds();
+            if (position < deviceIds.length) {
+                InputDevice device = inputManager.getInputDevice(deviceIds[position]);
+                if (supportsVibration(device)) {
+                    testVibration(device);
+                } else {
+                    Toast.makeText(this, "Bu cihaz titreşim desteklemiyor", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        showConnectedDevices();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        inputManager.registerInputDeviceListener(this, null);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        inputManager.unregisterInputDeviceListener(this);
+    }
+
+    @Override
+    public void onInputDeviceAdded(int deviceId) {
+        showConnectedDevices();
+    }
+
+    @Override
+    public void onInputDeviceRemoved(int deviceId) {
+        showConnectedDevices();
+    }
+
+    @Override
+    public void onInputDeviceChanged(int deviceId) {
+        showConnectedDevices();
+    }
+
+    private void showConnectedDevices() {
+        deviceList.clear();
+        int[] deviceIds = inputManager.getInputDeviceIds();
+
+        for (int id : deviceIds) {
+            InputDevice device = inputManager.getInputDevice(id);
+            if (device == null) continue;
+
+            String deviceInfo = "🕹️ " + device.getName() +
+                    "\nID: " + device.getId() +
+                    " | Vendor: " + device.getVendorId() +
+                    " | Product: " + device.getProductId() +
+                    " | Descriptor: " + device.getDescriptor() +
+                    "\nSources: " + getSourceNames(device.getSources());
+
+            deviceList.add(deviceInfo);
+        }
+
+        if (deviceList.isEmpty()) {
+            deviceList.add("🔌 Hiçbir cihaz bağlı değil.");
+        }
+
+        deviceAdapter.notifyDataSetChanged();
+    }
+
+    private String getSourceNames(int sources) {
+        List<String> sourceNames = new ArrayList<>();
+        if ((sources & InputDevice.SOURCE_JOYSTICK) != 0) sourceNames.add("JOYSTICK");
+        if ((sources & InputDevice.SOURCE_GAMEPAD) != 0) sourceNames.add("GAMEPAD");
+        if ((sources & InputDevice.SOURCE_DPAD) != 0) sourceNames.add("DPAD");
+        if ((sources & InputDevice.SOURCE_TOUCHSCREEN) != 0) sourceNames.add("TOUCH");
+        if ((sources & InputDevice.SOURCE_MOUSE) != 0) sourceNames.add("MOUSE");
+        if ((sources & InputDevice.SOURCE_TOUCHPAD) != 0) sourceNames.add("TOUCHPAD");
+        if ((sources & InputDevice.SOURCE_KEYBOARD) != 0) sourceNames.add("KEYBOARD");
+
+        return TextUtils.join(", ", sourceNames);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        controllerInputManager.handleMotionEvent(event);
+        return super.dispatchGenericMotionEvent(event);
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        InputDevice device = event.getDevice();
-        if (isController(device)) {
-            handleButtonPress(event);
-            return true;
-        }
+        controllerInputManager.handleKeyEvent(event);
         return super.dispatchKeyEvent(event);
     }
 
-    @Override
-    public boolean dispatchGenericMotionEvent(MotionEvent motionEvent) {
-        InputDevice device = motionEvent.getDevice();
-        if (isController(device)) {
-            handleJoystickAndTrigger(motionEvent);
-            return true;
-        }
 
-        return super.dispatchGenericMotionEvent(motionEvent);
-    }
+    private void testVibration(InputDevice device) {
+        if (device == null) return;
 
-//    @Override
-//    public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
-//        return super.dispatchPopulateAccessibilityEvent(event);
-//    }
-//
-//    @Override
-//    public boolean dispatchTouchEvent(MotionEvent ev) {
-//        return super.dispatchTouchEvent(ev);
-//    }
-
-    private void handleButtonPress(KeyEvent keyEvent) {
-        String buttonName = KeyEvent.keyCodeToString(keyEvent.getKeyCode());
-        if (buttonName != null) {
-            currentButtonState = "Button: " + buttonName + " State: " + (keyEvent.getAction() == KeyEvent.ACTION_DOWN ? "Pressed" : "Released");
-            updateDeviceInfo(keyEvent.getDevice());
-            updateDisplay();
-        }
-        else{
-            currentButtonState = "Button Name N/A State: " + (keyEvent.getAction() == KeyEvent.ACTION_DOWN ? "Pressed" : "Released");
-            updateDeviceInfo(keyEvent.getDevice());
-            updateDisplay();
+        Vibrator vibrator = device.getVibrator();
+        if (vibrator != null && vibrator.hasVibrator()) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                VibrationEffect effect = VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE);
+                vibrator.vibrate(effect);
+            } else {
+                vibrator.vibrate(300); // eski API için
+            }
         }
     }
 
-    private void handleJoystickAndTrigger(MotionEvent motionEvent) {
-        float leftJoystickX = motionEvent.getAxisValue(MotionEvent.AXIS_X);
-        float leftJoystickY = motionEvent.getAxisValue(MotionEvent.AXIS_Y);
-        float rightJoystickX = motionEvent.getAxisValue(MotionEvent.AXIS_Z);
-        float rightJoystickY = motionEvent.getAxisValue(MotionEvent.AXIS_RZ);
-
-//        float leftTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_LTRIGGER);
-//        float rightTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_RTRIGGER);
-
-
-        float leftTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_BRAKE);
-        float rightTrigger = motionEvent.getAxisValue(MotionEvent.AXIS_GAS);
-
-        float dPadX = motionEvent.getAxisValue(MotionEvent.AXIS_HAT_X);
-        float dPadY = motionEvent.getAxisValue(MotionEvent.AXIS_HAT_Y);
-
-
-        if (dPadX == 1) {
-            handleButtonPress(new KeyEvent(motionEvent.getAction() , KeyEvent.KEYCODE_DPAD_RIGHT));
-        }
-        else if (dPadX == -1) {
-            handleButtonPress(new KeyEvent(motionEvent.getAction() , KeyEvent.KEYCODE_DPAD_LEFT));
-        }
-
-        if (dPadY == 1) {
-            handleButtonPress(new KeyEvent(motionEvent.getAction() , KeyEvent.KEYCODE_DPAD_DOWN));
-        }
-        else if (dPadY == -1) {
-            handleButtonPress(new KeyEvent(motionEvent.getAction() , KeyEvent.KEYCODE_DPAD_UP));
-        }
-
-        currentJoystickState = String.format("Left Joystick: (%.2f, %.2f)\nRight Joystick: (%.2f, %.2f)",
-                leftJoystickX, leftJoystickY, rightJoystickX, rightJoystickY);
-
-        currentTriggerState = String.format("Left Trigger: %.2f\nRight Trigger: %.2f", leftTrigger, rightTrigger);
-
-        currentDpadState = String.format("D Pad X: %.2f\nD Pad Y: %.2f", dPadX, dPadY);
-
-        updateDeviceInfo(motionEvent.getDevice());
-        updateDisplay();
-    }
-
-    private void updateDisplay() {
-        String displayText = String.format("%s\n%s\n%s\n%s\n%s", currentButtonState, currentJoystickState, currentTriggerState, currentDpadState, deviceInfo);
-        binding.debugTextView.setText(displayText);
-    }
-
-    private void updateDeviceInfo(InputDevice device) {
-        if (device != null) {
-            deviceInfo = String.format("Device: %s\nVendor ID: %d, Product ID: %d",
-                    device.getName(), device.getVendorId(), device.getProductId());
-        }
-    }
-
-    private boolean isController(InputDevice device) {
-        if (device != null) {
-            int vendorId = device.getVendorId();
-            int productId = device.getProductId();
-            return (vendorId == VENDOR_ID_MICROSOFT && productId == PRODUCT_ID_XBOX_CONTROLLER) ||
-                    (vendorId == VENDOR_ID_LOGITECH &&
-                            (productId == PRODUCT_ID_LOGITECH_XBOX_CONTROLLER || productId == PRODUCT_ID_LOGITECH_GENERIC_CONTROLLER));
-        }
-        return false;
+    private boolean supportsVibration(InputDevice device) {
+        return device != null && device.getVibrator().hasVibrator();
     }
 }
